@@ -38,6 +38,13 @@ def get_parameter():
 
     config = parser.parse_args()
 
+    dir_path = os.path.join('logs', 'model')
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
+    dir_path = os.path.join('logs', 'log')
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
+    
     config.model_path = os.path.join('logs', 'model', '%s_%s.cpkt'%(config.obj, config.flag))
     config.log_path = os.path.join('logs', 'log', '%s_%s.txt'%(config.obj, config.flag))
     config.loss_type = config.loss_type.split(',')
@@ -49,7 +56,7 @@ def get_parameter():
 
     return config
 
-def main():    
+def main():
 
     # config
     config = get_parameter()
@@ -91,6 +98,8 @@ def main():
 
     if config.obj.endswith('v2'):
         data = SbirData_v2(config.data_root, edge=edge)
+    elif config.obj == 'SketchyScene':
+        data = SketchyScene(config.data_root, edge=edge)
     elif config.obj == 'sketchy':
         data = SketchyData(config.data_root, edge=edge)
         config.y_dim = len(data.trainset_cate)
@@ -181,7 +190,7 @@ def train(model, data, config=None):
     print(losses)
 
     # data loader
-    loader = data.loader(batch_size=config.batch_size, num_workers=config.batch_size//4, shuffle=True)
+    loader = data.loader(batch_size=config.batch_size, num_workers=4, shuffle=True)
 
     # optimizor
     lr, decay = config.lr, config.weight_decay
@@ -211,8 +220,8 @@ def train(model, data, config=None):
     # training
     for epoch in range(2000):
         for i, [skts, img1s, img2s, idxs, attrs] in enumerate(loader):
-            print(skts.shape, img1s.shape, img2s.shape, skts.min(), skts.max(), img1s.min(), img1s.max())
-            exit(0)
+            # print(skts.shape, img1s.shape, img2s.shape, skts.min(), skts.max(), img1s.min(), img1s.max())
+            # exit(0)
 
             skts, img1s, img2s, idxs, attrs = skts.to(device), img1s.to(device), img2s.to(device), idxs.to(device), attrs.to(device)
 
@@ -247,7 +256,7 @@ def train(model, data, config=None):
                         # I don't know what is wrong with centre loss
                         continue
                         for p in param['params']:
-                        	p.grad.data *= (1.0/losses[key][0])
+                            p.grad.data *= (1.0/losses[key][0])
                 opt.step()
             
         info = 'e:{}'.format(epoch+1)
@@ -259,7 +268,6 @@ def train(model, data, config=None):
         print('\r'+info, end='')
 
         if (epoch+1) % config.epoch_sep == 0:
-
             accu, accu_complex = test(model, data, config, config.test_verbose)
             #best_accu = {}
             info = config.flag

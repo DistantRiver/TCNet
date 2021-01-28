@@ -16,7 +16,7 @@ def test(model, data, config, verbose=False):
         if config.obj in ('shoes', 'chairs') and not (config.distance in ('sq', 'cos')):
             sep = 50
 
-        if config.obj in ('shoes_v2', 'hairstyle') and config.distance in ('sq', 'cos'):
+        if config.obj in ('shoes_v2', 'hairstyle', 'SketchyScene') and config.distance in ('sq', 'cos'):
             sep = 300
 
         if config.obj in ('shoes_v2', 'hairstyle') and not (config.distance in ('sq', 'cos')):
@@ -124,11 +124,15 @@ def test_simple(model, data, config):
     retrieval_idxs = res.sort(dim=1)[1][:,:10]
     test_idxs = test_idxs.type(retrieval_idxs.type())
     accu1 = (retrieval_idxs[:,0] == test_idxs).float().mean().item()
-    accu10 = accu1
-    for i in range(1, 10):
+    accu5 = accu1
+    for i in range(1, 5):
+        accu = (retrieval_idxs[:,i] == test_idxs).float().mean().item()
+        accu5 += accu
+    accu10 = accu5
+    for i in range(5, 10):
         accu = (retrieval_idxs[:,i] == test_idxs).float().mean().item()
         accu10 += accu
-    return {'top-1':accu1, 'top-10':accu10}
+    return {'top-1':accu1, 'top-5':accu5, 'top-10':accu10}
 
 
 def test_simple_manidata(model, data, config, sep, verbose):
@@ -142,7 +146,7 @@ def test_simple_manidata(model, data, config, sep, verbose):
     niter = ns // sep + int(ns % sep > 0)
 
     curr_idx = 0
-    right1, right10, num, i = 0, 0, 0, 0
+    right1, right5, right10, num, i = 0, 0, 0, 0, 0
     while curr_idx < ns:
         n = min(sep, ns - curr_idx)
         data = TestData(test_skts[curr_idx:curr_idx+n],
@@ -150,20 +154,22 @@ def test_simple_manidata(model, data, config, sep, verbose):
                         test_idxs[curr_idx:curr_idx+n])
         accu = test_simple(model, data, config)
         curr_idx += sep
-        accu1, accu10 = accu['top-1'], accu['top-10']
+        accu1, accu5, accu10 = accu['top-1'], accu['top-5'], accu['top-10']
 
 
         num += n
         right1 += accu1 * n
+        right5 += accu5 * n
         right10 += accu10 * n
         i += 1
+        
         if verbose:
-            print('\r%2d/%3d, right1:{:.0f}, right10:{:.0f}, num:%6d'.format(right1, right10)%(i,niter, num), end='')
+            print('\r%2d/%3d, right1:{:.0f}, right5:{:.0f}, right10:{:.0f}, num:%6d'.format(right1, right5, right10) % (i, niter, num),
+                  end='')
     if verbose:
         print()
 
-    return {'top-1':right1/num, 'top-10':right10/num}
-
+    return {'top-1':right1/num, 'top-5':right5/num, 'top-10':right10/num}
 
 
 def test_complex(model, data, config):
@@ -181,10 +187,18 @@ def test_complex(model, data, config):
     model.eval()
     with torch.no_grad():
 
-        feat_skts = model(test_skts.to(device)).cpu()
-
+        test_num = test_skts.shape[0] // 10
+        
+        feat_skts_all = []
+        
+        for i in range(test_num):
+            feat_skts = model(test_skts[i * 10:(i + 1) * 10].to(device)).cpu()
+            feat_skts_all.append(feat_skts)
+        feat_skts = torch.cat(feat_skts_all)
+            
         if hasattr(data, 'feat_imgs') and data.feat_imgs is not None:
             feat_imgs = data.feat_imgs
+            
         else:
             feat_imgs_list = []
             curr_idx = 0
@@ -196,15 +210,15 @@ def test_complex(model, data, config):
             data.feat_imgs = feat_imgs
 
         if not config.fix_bn:
-            model.train()
-
+             model.train()
+            
         # compute distance
         ns, np = ns//10, np//10
         feat_skts = feat_skts.view(10, ns, -1).transpose(0, 1).cpu()
         feat_imgs = feat_imgs.view(10, np, -1).transpose(0, 1).cpu()
 
         feat_skts = feat_skts.unsqueeze(1).repeat(1, np, 1, 1)
-        feat_imgs = feat_imgs.unsqueeze(0).repeat(ns, 1, 1, 1)
+        # feat_imgs = feat_imgs.unsqueeze(0).repeat(ns, 1, 1, 1)
 
         if distance == 'cos':
             res = -torch.nn.functional.cosine_similarity(feat_skts, feat_imgs, dim=3)
@@ -212,17 +226,21 @@ def test_complex(model, data, config):
             res = torch.norm(feat_skts - feat_imgs, dim=3).pow(2)
         else:
             res = distance(feat_skts, feat_imgs)
-        res = res.mean(dim = 2)
+        res = res.mean(dim=2)
 
     # compute top-1, top-10 accuracy
     retrieval_idxs = res.sort(dim=1)[1][:,:10]
     test_idxs = test_idxs.type(retrieval_idxs.type())
     accu1 = (retrieval_idxs[:,0] == test_idxs).float().mean().item()
-    accu10 = accu1
-    for i in range(1, 10):
+    accu5 = accu1
+    for i in range(1, 5):
+        accu = (retrieval_idxs[:,i] == test_idxs).float().mean().item()
+        accu5 += accu
+    accu10 = accu5
+    for i in range(5, 10):
         accu = (retrieval_idxs[:,i] == test_idxs).float().mean().item()
         accu10 += accu
-    return {'top-1':accu1, 'top-10':accu10}
+    return {'top-1':accu1, 'top-5':accu5, 'top-10':accu10}
 
 
 def test_complex_manidata(model, data, config, sep, verbose):
@@ -236,7 +254,7 @@ def test_complex_manidata(model, data, config, sep, verbose):
     niter =  ns // sep + int(ns % sep > 0)
 
     curr_idx = 0
-    right1, right10, num, i = 0, 0, 0, 0
+    right1, right5, right10, num, i = 0, 0, 0, 0, 0
     while curr_idx < ns:
 
         n = min(sep, ns - curr_idx)
@@ -250,18 +268,19 @@ def test_complex_manidata(model, data, config, sep, verbose):
                         test_idxs[curr_idx:curr_idx+sep])
         curr_idx += sep
         accu = test_complex(model, data, config)
-        accu1, accu10 = accu['top-1'], accu['top-10']
+        accu1, accu5, accu10 = accu['top-1'], accu['top-5'], accu['top-10']
 
 
         num += n
         right1 += accu1 * n
+        right5 += accu5 * n
         right10 += accu10 * n
         i += 1
         
         if verbose:
-            print('\r%2d/%3d, right1:{:.0f}, right10:{:.0f}, num:%6d'.format(right1, right10) % (i, niter, num),
+            print('\r%2d/%3d, right1:{:.0f}, right5:{:.0f}, right10:{:.0f}, num:%6d'.format(right1, right5, right10) % (i, niter, num),
                   end='')
     if verbose:
         print()
 
-    return {'top-1':right1/num, 'top-10':right10/num}
+    return {'top-1':right1/num, 'top-5':right5/num, 'top-10':right10/num}
